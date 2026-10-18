@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage 
+    SchemaVersion="1.0" 
+    AppVersion="1.0.0" 
+    Author="MacRibbon" 
+    ProductCode="{3F5B8B9A-C1A2-4E38-9B5A-9D8F1A7C5D23}" 
+    Name="MacRibbon" 
+    Description="Windows-style Ribbon Toolbar for AutoCAD for Mac">
+  <CompanyDetails Name="MacRibbon" />
+  <Components Description="MacRibbon Universal Components">
+    <RuntimeRequirements OS="Mac" Platform="AutoCAD*" SeriesMin="R20.0" SeriesMax="R30.0" />
+    <ComponentEntry 
+        AppName="MacRibbonNative" 
+        ModuleName="./Contents/MacOS/MacRibbon" 
+        AppType="Arx" 
+        LoadOnAutoCADStartup="True"
+        LoadOnCommandInvocation="True">
+      <Commands GroupName="MACRIBBON_COMMANDS">
+        <Command Local="RIBBON" Global="RIBBON" />
+        <Command Local="MR" Global="MR" />
+        <Command Local="RIBBONCLOSE" Global="RIBBONCLOSE" />
+      </Commands>
+    </ComponentEntry>
+    <ComponentEntry 
+        AppName="MacRibbonLisp" 
+        ModuleName="./Contents/Resources/macribbon.lsp" 
+        AppType="Lisp" 
+        LoadOnAutoCADStartup="True"
+        LoadOnCommandInvocation="True">
+      <Commands GroupName="MACRIBBON_COMMANDS">
+        <Command Local="RIBBON" Global="RIBBON" />
+        <Command Local="MR" Global="MR" />
+        <Command Local="RIBBONCLOSE" Global="RIBBONCLOSE" />
+      </Commands>
+    </ComponentEntry>
+  </Components>
+</ApplicationPackage>
