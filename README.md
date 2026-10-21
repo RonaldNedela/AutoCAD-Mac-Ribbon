@@ -2,147 +2,149 @@
 
 [![macOS](https://img.shields.io/badge/macOS-Sonoma%20%7C%20Sequoia-black?logo=apple)](https://www.apple.com/macos/)
 [![AutoCAD](https://img.shields.io/badge/AutoCAD-2024%20--%202027+-red?logo=autodesk)](https://www.autodesk.com/products/autocad)
-[![Architecture](https://img.shields.io/badge/Architecture-Universal%20(arm64%20+%20x86__64)-blue)](#compatibility)
+[![Architecture](https://img.shields.io/badge/Architecture-Universal%20(arm64%20+%20x86__64)-blue)](#system-and-software-compatibility)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A native, high-performance plugin for **AutoCAD for Mac** that brings back the full **Windows-style horizontal Ribbon** across the top of the screen.
+A native, high-performance plugin for **AutoCAD for Mac** that restores the standardized **Windows-style horizontal Ribbon** across the top of the drawing canvas.
 
-Designed for architects, mechanical engineers, and drafters switching from Windows to macOS who want their muscle memory, standard top-docked toolsets, and full-width canvas back.
+Designed for architects, mechanical engineers, and CAD professionals transitioning from Windows to macOS who require muscle-memory consistency, top-docked toolsets, and full-width canvas workspace optimization.
 
 ---
 
-## 📸 Preview
+## Interface Preview
 
 ![AutoCAD Windows Ribbon on macOS](docs/images/preview.png)
 
-*Windows Ribbon mode in AutoCAD 2027 on macOS Sequoia with dynamic theme adaptation and auto-hidden side palettes.*
+*Windows Ribbon operating natively inside AutoCAD on macOS with dynamic theme synchronization and automatic canvas resizing.*
 
 ---
 
-## ⚡️ Key Features
+## Core Features
 
-- **Standard Windows Layout**: All tools organized horizontally across the top into standardized panels (Draw, Modify, Annotation, Layers, Block, Properties, Utilities, Clipboard).
+- **Standardized Windows Layout**: Toolsets organized horizontally across the top perimeter into standardized panels (Draw, Modify, Annotation, Layers, Block, Properties, Utilities, Clipboard).
 - **Comprehensive 7-Tab Navigation**:
   - **Home**: Draw (Line, Polyline, Circle, Arc, Rectangle, Ellipse, Hatch), Modify (Move, Rotate, Trim, Erase, Copy, Mirror, Fillet, Stretch, Scale, Array, Explode, Offset), Annotations, Layers, Blocks, Properties.
-  - **Insert**: Block insertion, Xref management, raster images, DWF/PDF underlays, point clouds.
-  - **Annotate**: Multiline text, Linear/Aligned dimensions, Multileaders, Tables, markup tools.
+  - **Insert**: Block insertion, Xref external reference management, raster images, DWF/PDF underlays, point clouds.
+  - **Annotate**: Multiline text, Linear/Aligned dimensions, Multileaders, Tables, markup utilities.
   - **Parametric**: Geometric constraints (Coincident, Parallel, Perpendicular, Tangent) and Dimensional constraints.
   - **View**: Real-time Pan, Zoom window/extents, UCS manager, Named views, Viewport configurations.
   - **Manage**: Purge, Audit, AppLoad, Script runner, CUI editor.
   - **Output**: Plot, Page Setup, Batch Plot, Export to PDF, eTransmit.
   - **Collaborate**: Shared Views, DWG Compare, Activity Insights.
-- **Dynamic Theme Synchronization**: Samples AutoCAD’s exact window palette in real time and automatically adapts to dark and light modes.
-- **Screen Boundary-Aware Menus**: Flyout submenus detect screen edges and automatically flip orientation to prevent clipping.
-- **One-Click & Command-Based Switching**:
-  - Type `RIBBON` or `MR` in the AutoCAD command line to switch to the Windows Ribbon.
-  - Type `RIBBONCLOSE` or click **"Mac Toolbar"** in the top bar to restore the classic vertical Mac toolset.
-- **True Drag-and-Drop Installation**: Zero command-line knowledge required. Just drop `MacRibbon.bundle` into your Autodesk Addins folder and launch AutoCAD.
-- **Universal Binary**: Compiled natively for both **Apple Silicon (M1/M2/M3/M4)** and **Intel (x86_64)**.
+- **Dynamic Theme Synchronization**: Samples AutoCAD’s active palette in real time, automatically adhering to dark and light interface modes.
+- **Screen Boundary-Aware Menus**: Flyout submenus monitor display boundaries and automatically invert orientation to eliminate edge clipping.
+- **Command-Line and Single-Click Toggling**:
+  - Execute `RIBBON` or `MR` in the AutoCAD command line to engage the Windows Ribbon layout.
+  - Execute `RIBBONCLOSE` or click **"Mac Toolbar"** in the top navigation strip to restore the classic vertical Mac palette.
+- **Zero-Dependency Bundle Deployment**: Drop `MacRibbon.bundle` into the Autodesk ApplicationAddins directory for immediate recognition on launch.
+- **Universal Binary**: Compiled natively for **Apple Silicon (arm64, M1 through M4)** and **Intel (x86_64)**.
 
 ---
 
-## 🕹 AutoCAD Commands
+## Registered AutoCAD Commands
 
-| Command | Action |
+| Command | Description |
 | :--- | :--- |
-| `RIBBON` | Enables the Windows Ribbon, closes the vertical Mac toolsets, and auto-docks palettes. |
-| `MR` | Convenient short alias for `RIBBON`. |
-| `RIBBONCLOSE` | Restores the classic macOS floating/docked Tool Sets palette and displays a quick-switch button. |
+| `RIBBON` | Activates the Windows Ribbon toolbar, docks palette frames, and hides the vertical Mac toolset. |
+| `MR` | Shortened command alias for `RIBBON`. |
+| `RIBBONCLOSE` | Restores the standard macOS floating/docked Tool Sets palette and displays the quick-switch bar. |
 
 ---
 
-## 📦 Installation
+## Installation
 
-### Method 1: Drag & Drop (Recommended)
-1. Download or locate `MacRibbon.bundle` (available in the [Releases](../../releases) tab or inside the `build/` folder).
-2. Copy or drag `MacRibbon.bundle` into:
+### Method 1: ApplicationAddins Directory Deployment (Recommended)
+1. Locate or download `MacRibbon.bundle` from the [Releases](../../releases) section or the `build/` directory.
+2. Move `MacRibbon.bundle` into your user ApplicationAddins directory:
    ```text
    ~/Library/Application Support/Autodesk/ApplicationAddins/
    ```
-   *(Shortcut: In Finder, press `Cmd + Shift + G`, paste the path above, and press Enter).*
-3. Launch or restart AutoCAD. The Ribbon will automatically load.
+   *(Create the directory if it does not yet exist).*
+3. Launch AutoCAD for Mac. The plugin will initialize automatically.
 
----
-
-### Method 2: 1-Click Installer (Pre-Packaged)
-If using the bundled installer:
-1. Open the `MacRibbon-Installer` folder on your Desktop.
-2. Double-click `Telepites_1-Kattintassal.command` (or drag `MacRibbon.bundle` onto `Húzd_ide_az_Autodesk_Addinsbe`).
-3. Start AutoCAD.
-
----
-
-### Method 3: Build from Source
-If you are modifying the source code:
+### Method 2: Package Installer
+Run the standalone pre-packaged binary installer:
 ```bash
-git clone https://github.com/your-username/AutoCAD-Mac-Ribbon.git
+./MacRibbon-Installer
+```
+
+### Method 3: Compilation from Source
+Prerequisites: Xcode Command Line Tools.
+
+```bash
+git clone git@github.com:RonaldNedela/AutoCAD-Mac-Ribbon.git
 cd AutoCAD-Mac-Ribbon
+make bundle
 make install
 ```
-This compiles the Universal binary, signs the bundle, copies all web assets, and registers the autoloader.
 
 ---
 
-## 🔄 Dual Workspace Mode
+## Dual Workspace Operation
 
-You can switch back and forth between the macOS classic toolbar and the Windows Ribbon at any time without restarting AutoCAD:
+The plugin supports dynamic, non-destructive switching between macOS and Windows interface configurations without restarting AutoCAD:
 
-![Classic Mac Toolbar Mode](docs/images/mac_toolbar_mode.png)
+```
+[ Default Mac Layout ]  <=== (Type 'MR' or 'RIBBON') ===>  [ Windows Ribbon Layout ]
+```
 
-- **In Windows Ribbon mode**: Click the **"Mac Toolbar"** button in the upper-right corner of the Ribbon or type `RIBBONCLOSE`.
-- **In Mac Toolbar mode**: Click the **"⚡️ Windows Ribbon"** button in the top menu bar or type `RIBBON` / `MR`.
+1. **Windows Ribbon Mode (`RIBBON` / `MR`)**:
+   - The top Ribbon toolbar mounts immediately beneath the macOS document title bar.
+   - The vertical Tool Sets side palette collapses automatically.
+   - The active drawing canvas expands to the full display width.
+2. **Classic Mac Tool Sets Mode (`RIBBONCLOSE`)**:
+   - The top Ribbon toolbar unmounts cleanly.
+   - Classic macOS floating toolsets, Properties inspector, and Layer manager restore to their previous coordinate positions.
+   - A minimalist, non-intrusive "Windows Ribbon" activation button remains in the upper-right corner.
 
 ---
 
-## 🏗 Architecture & Under the Hood
+## Architecture and Technical Implementation
 
 ```
 AutoCAD-Mac-Ribbon/
-├── src/
-│   ├── main.mm                 # ObjectARX entry point (acrxEntryPoint) & app lock
-│   ├── CommandExecutor.h/.mm   # Dual-engine CAD dispatch (sendStringToExecute + AppleScript)
-│   ├── RibbonViewController.h/.mm # WebKit-based Ribbon host controller
-│   └── RibbonManager.h/.mm     # Window detection, theme sampling, and lifecycle manager
-├── ui/
-│   ├── index.html              # Ribbon markup with vector icons
-│   ├── style.css               # Dynamic theme-aware CAD styling
-│   ├── ribbon.js               # Event handling, dropdown logic, and command bus
-│   └── macribbon.lsp           # Universal AutoLISP companion & startup hook
-├── PackageContents.xml         # Autodesk Autoloader manifest
-├── Info.plist                  # macOS bundle metadata
-└── Makefile                    # Universal binary compiler and deploy script
+├── PackageContents.xml         # Autodesk Package Autoloader Specification
+├── Info.plist                  # Bundle Metadata & Class Mapping
+├── Makefile                    # Multi-target Clang Universal Compiler
+└── src/
+    ├── MacRibbonPlugin.m       # AutoCAD Entry Point, Extension Registration & Command Map
+    ├── MRRibbonBar.m           # AppKit Top-Docked NSView, Tab Strip & Dynamic Layout
+    ├── MRRibbonTheme.m         # Theme Extraction Engine (Dark / Light Dynamic Adaptation)
+    ├── MRMenuEngine.m          # Screen-Edge Aware Flyout Menu & Submenu Matrix
+    └── MRCanvasManager.m       # NSWindow Hierarchy Frame Resizing & Split-View Adjustment
 ```
 
-- **Native AppKit Overlay**: Intercepts the `AcMainWindow` NSWindow, injecting an ultra-crisp WebKit view directly beneath the standard macOS title bar.
-- **Dual-Engine Command Dispatch**: Native commands are fed directly to AutoCAD’s command loop via dynamic symbol resolution (`acedPostCommand` / `sendStringToExecute`), ensuring instant execution without UI lag.
-- **Crash-Proof ABI**: Designed without brittle static bindings to internal Autodesk private symbols, guaranteeing forward-compatibility across AutoCAD versions.
+### Technical Highlights
+- **Direct AppKit Layer Integration**: Directly injects custom `NSView` hierarchies into AutoCAD's primary document windows rather than wrapping web views, ensuring instantaneous click-to-execute response times.
+- **Command Dispatch via AutoCAD Runtime**: Button activations dispatch commands through AutoCAD's native `sendStringToExecute` / `acDocManager` pipeline.
+- **Thread Safety**: UI mutations are bound to the AppKit main dispatch queue with automatic transaction coalescing.
 
 ---
 
-## 💻 Compatibility
+## System and Software Compatibility
 
-| Component | Minimum Version | Tested & Supported |
-| :--- | :--- | :--- |
-| **AutoCAD for Mac** | 2024 (R24.3) | 2024, 2025, 2026, 2027 (R26.0)+ |
-| **macOS** | Sonoma (14.0) | macOS 14 Sonoma, macOS 15 Sequoia |
-| **Architecture** | 64-bit | Apple Silicon (`arm64`), Intel Core (`x86_64`) |
+- **Host Software**: Autodesk AutoCAD for Mac 2024, 2025, 2026, and 2027+.
+- **Operating Systems**: macOS 14 Sonoma, macOS 15 Sequoia, and newer.
+- **Hardware Architecture**: Apple Silicon (arm64, M1 through M4) and Intel (x86_64).
 
 ---
 
-## 🛠 Uninstallation
+## Removal and Uninstallation
 
-To remove the plugin:
+To completely remove the plugin:
 ```bash
-make uninstall
+rm -rf ~/Library/Application\ Support/Autodesk/ApplicationAddins/MacRibbon.bundle
 ```
-Or simply delete the bundle from:
-```text
-~/Library/Application Support/Autodesk/ApplicationAddins/MacRibbon.bundle
-```
+Upon the subsequent launch, AutoCAD will revert entirely to its default factory interface layout.
 
 ---
 
-## 📄 License
+## Author
 
-This project is licensed under the [MIT License](LICENSE).
-AutoCAD is a registered trademark of Autodesk, Inc. This project is an independent community extension and is not affiliated with or endorsed by Autodesk.
+- **Developer**: Ronald Nedela ([@RonaldNedela](https://github.com/RonaldNedela))
+
+---
+
+## License
+
+This project is licensed under the MIT License. Refer to the [LICENSE](LICENSE) file for complete terms.
