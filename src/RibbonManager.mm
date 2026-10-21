@@ -74,12 +74,27 @@ extern void LogMacRibbon(NSString *fmt, ...);
                                                  name:NSWindowDidResizeNotification
                                                object:nil];
 
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(onAppDidBecomeActive:)
+                                                 name:NSApplicationDidBecomeActiveNotification
+                                               object:nil];
+
+    [[NSDistributedNotificationCenter defaultCenter] addObserver:self
+                                                        selector:@selector(onSystemThemeChanged:)
+                                                            name:@"AppleInterfaceThemeChangedNotification"
+                                                          object:nil];
+
+    [[NSDistributedNotificationCenter defaultCenter] addObserver:self
+                                                        selector:@selector(onExternalCommandNotification:)
+                                                            name:@"com.ronci.macribbon.command"
+                                                          object:nil];
+
     dispatch_async(dispatch_get_main_queue(), ^{
         [self findAndAttachToTargetWindow];
     });
 
     if (!_pollTimer) {
-        _pollTimer = [NSTimer scheduledTimerWithTimeInterval:1.5
+        _pollTimer = [NSTimer scheduledTimerWithTimeInterval:5.0
                                                       target:self
                                                     selector:@selector(checkWindowStatus)
                                                     userInfo:nil
@@ -92,6 +107,7 @@ extern void LogMacRibbon(NSString *fmt, ...);
     [_pollTimer invalidate];
     _pollTimer = nil;
     [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [[NSDistributedNotificationCenter defaultCenter] removeObserver:self];
     [self hideRibbon];
 }
 
@@ -189,6 +205,8 @@ extern void LogMacRibbon(NSString *fmt, ...);
 }
 
 - (void)checkHtmlUpdate {
+    // Only check disk modification date if development reload flag is explicitly enabled
+    if (!getenv("MACRIBBON_DEV_RELOAD")) return;
     if (!_ribbonVC || !_ribbonVC.resourcesURL) return;
     NSURL *htmlURL = [_ribbonVC.resourcesURL URLByAppendingPathComponent:@"index.html"];
     if (!htmlURL) return;
@@ -198,7 +216,7 @@ extern void LogMacRibbon(NSString *fmt, ...);
     if (modDate) {
         if (_lastHtmlModDate && [modDate timeIntervalSinceDate:_lastHtmlModDate] > 0.5) {
             _lastHtmlModDate = modDate;
-            LogMacRibbon(@"index.html modified on disk - automatically reloading Ribbon WebView!");
+            LogMacRibbon(@"index.html modified on disk - reloading Ribbon WebView");
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self reloadRibbon];
             });
@@ -208,26 +226,59 @@ extern void LogMacRibbon(NSString *fmt, ...);
     }
 }
 
+- (void)processCommand:(NSString *)cmd {
+    if (!cmd || cmd.length == 0) return;
+    LogMacRibbon(@"processCommand received: '%@'", cmd);
+    if ([cmd isEqualToString:@"dockInspectorLeft"]) {
+        [self ribbonRequestedDockInspectorLeft:YES];
+    } else if ([cmd isEqualToString:@"dockInspectorRight"]) {
+        [self ribbonRequestedDockInspectorLeft:NO];
+    } else if ([cmd isEqualToString:@"toggleHidePalettes"]) {
+        [self ribbonRequestedToggleHidePalettes];
+    } else if ([cmd isEqualToString:@"switchToMacToolbar"] || [cmd isEqualToString:@"ribbonclose"] || [cmd isEqualToString:@"hideRibbon"]) {
+        [self switchToMacToolbar];
+    } else if ([cmd isEqualToString:@"switchToWindowsRibbon"] || [cmd isEqualToString:@"ribbon"] || [cmd isEqualToString:@"mr"] || [cmd isEqualToString:@"showRibbon"]) {
+        [self switchToWindowsRibbon];
+    } else if ([cmd isEqualToString:@"toggleRibbon"]) {
+        [self toggleRibbon];
+    } else if ([cmd isEqualToString:@"updateTheme"]) {
+        [self updateThemeFromAutoCAD];
+    } else if ([cmd isEqualToString:@"reload"]) {
+        [self reloadRibbon];
+    }
+}
+
 - (void)checkExternalCommands {
     NSString *cmdPath = @"/tmp/ribbon_cmd.txt";
     if ([[NSFileManager defaultManager] fileExistsAtPath:cmdPath]) {
         NSString *cmd = [[NSString stringWithContentsOfFile:cmdPath encoding:NSUTF8StringEncoding error:nil] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         [[NSFileManager defaultManager] removeItemAtPath:cmdPath error:nil];
-        LogMacRibbon(@"checkExternalCommands received: '%@'", cmd);
-        if ([cmd isEqualToString:@"dockInspectorLeft"]) {
-            [self ribbonRequestedDockInspectorLeft:YES];
-        } else if ([cmd isEqualToString:@"dockInspectorRight"]) {
-            [self ribbonRequestedDockInspectorLeft:NO];
-        } else if ([cmd isEqualToString:@"toggleHidePalettes"]) {
-            [self ribbonRequestedToggleHidePalettes];
-        } else if ([cmd isEqualToString:@"switchToMacToolbar"] || [cmd isEqualToString:@"ribbonclose"] || [cmd isEqualToString:@"hideRibbon"]) {
-            [self switchToMacToolbar];
-        } else if ([cmd isEqualToString:@"switchToWindowsRibbon"] || [cmd isEqualToString:@"ribbon"] || [cmd isEqualToString:@"mr"] || [cmd isEqualToString:@"showRibbon"]) {
-            [self switchToWindowsRibbon];
-        } else if ([cmd isEqualToString:@"toggleRibbon"]) {
-            [self toggleRibbon];
-        }
+        [self processCommand:cmd];
     }
+}
+
+- (void)onExternalCommandNotification:(NSNotification *)note {
+    NSString *cmd = note.object;
+    if ([cmd isKindOfClass:[NSString class]]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self processCommand:cmd];
+        });
+    }
+}
+
+- (void)onSystemThemeChanged:(NSNotification *)note {
+    (void)note;
+    LogMacRibbon(@"AppleInterfaceThemeChangedNotification received, updating theme");
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self updateThemeFromAutoCAD];
+    });
+}
+
+- (void)onAppDidBecomeActive:(NSNotification *)note {
+    (void)note;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self updateThemeFromAutoCAD];
+    });
 }
 
 - (void)checkWindowStatus {
@@ -235,7 +286,6 @@ extern void LogMacRibbon(NSString *fmt, ...);
     if (!_targetWindow || ![_targetWindow isVisible]) {
         [self findAndAttachToTargetWindow];
     } else {
-        [self updateThemeFromAutoCAD];
         [self checkHtmlUpdate];
     }
 }
@@ -246,6 +296,8 @@ extern void LogMacRibbon(NSString *fmt, ...);
     if ([self isCandidateWindow:win]) {
         if (_targetWindow != win) {
             [self attachToWindow:win];
+        } else {
+            [self updateThemeFromAutoCAD];
         }
     }
 }
@@ -324,6 +376,7 @@ extern void LogMacRibbon(NSString *fmt, ...);
     [[CommandExecutor sharedInstance] executeCommand:@"_TOOLSETSCLOSE\n"];
     [self ensurePalettesHidden:YES];
     [self updateRibbonFrame];
+    [self updateThemeFromAutoCAD];
 }
 
 static void dumpViewHierarchy(NSView *v, int depth) {
@@ -480,7 +533,7 @@ static void dumpViewHierarchy(NSView *v, int depth) {
     NSView *contentView = _targetWindow.contentView;
     NSRect bounds = contentView.bounds;
 
-    CGFloat btnW = 145;
+    CGFloat btnW = 130;
     CGFloat btnH = 21;
     // Position cleanly in the top bar empty zone between Quick Access and User profile
     CGFloat btnX = bounds.size.width - 320;
@@ -488,7 +541,7 @@ static void dumpViewHierarchy(NSView *v, int depth) {
 
     if (!_floatingSwitchButton) {
         _floatingSwitchButton = [[NSButton alloc] initWithFrame:NSMakeRect(btnX, btnY, btnW, btnH)];
-        _floatingSwitchButton.title = @"⚡️ Windows Ribbon";
+        _floatingSwitchButton.title = @"Windows Ribbon";
         _floatingSwitchButton.bezelStyle = NSBezelStyleInline;
         _floatingSwitchButton.target = self;
         _floatingSwitchButton.action = @selector(onFloatingSwitchClicked:);

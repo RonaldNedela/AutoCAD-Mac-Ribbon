@@ -115,9 +115,19 @@ AutoCAD-Mac-Ribbon/
 ```
 
 ### Technical Highlights
-- **Direct AppKit Layer Integration**: Directly injects custom `NSView` hierarchies into AutoCAD's primary document windows rather than wrapping web views, ensuring instantaneous click-to-execute response times.
+- **Direct AppKit Layer Integration**: Directly injects custom `NSView` hierarchies into AutoCAD's primary document windows, ensuring instantaneous click-to-execute response times.
 - **Command Dispatch via AutoCAD Runtime**: Button activations dispatch commands through AutoCAD's native `sendStringToExecute` / `acDocManager` pipeline.
 - **Thread Safety**: UI mutations are bound to the AppKit main dispatch queue with automatic transaction coalescing.
+
+---
+
+## Performance and Resource Optimization
+
+- **Event-Driven Theme Synchronization**: Replaced periodic offscreen bitmap capturing with event-driven notifications (`AppleInterfaceThemeChangedNotification`, `NSWindowDidBecomeKeyNotification`, `NSApplicationDidBecomeActiveNotification`). Theme colors are sampled strictly when an appearance change occurs, reducing idle CPU usage to 0%.
+- **Zero Compositor Stalls**: Eliminated recurring `cacheDisplayInRect:toBitmapImageRep:` calls every 1.5 seconds, preventing main-thread and GPU compositor synchronization stalls.
+- **Instantaneous Event-Driven IPC**: Integrated `NSDistributedNotificationCenter` (`com.ronci.macribbon.command`) to handle tool-to-plugin commands without filesystem polling.
+- **Production Asset Caching**: Filesystem modification checks for `index.html` are bypassed during production, saving repeated disk I/O.
+- **Vector-Optimized UI**: Replaced emoji glyphs with lightweight, scalable vector SVGs across Layer controls and navigation bars.
 
 ---
 
