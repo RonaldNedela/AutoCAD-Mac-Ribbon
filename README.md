@@ -18,6 +18,12 @@ Built for architects, mechanical engineers, and CAD users moving between Windows
 
 *Windows Ribbon v2.0.0 running inside AutoCAD for Mac 2027 with native matte drafting icons, live AutoCAD theme synchronization, and automatic top spacer reservation.*
 
+### Dark & Light Theme Close-Up
+
+![Windows Ribbon Dark Theme](docs/images/ribbon_dark.png)
+
+![Windows Ribbon Light Theme](docs/images/ribbon_light.png)
+
 ---
 
 ## Features
