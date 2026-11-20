@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Logs and temporary files
+*.log
+/tmp/
+screen_*.png
+build/*.zip
+
+# IDE / Editors
+.vscode/
+.idea/
+*.swp
+*~

@@ -1,13 +1,15 @@
 #!/bin/bash
+set -e
 TARGET_DIR="$HOME/Library/Application Support/Autodesk/ApplicationAddins"
-mkdir -p "$TARGET_DIR"
+PLUGINS_DIR="$HOME/Library/Application Support/Autodesk/ApplicationPlugins"
+mkdir -p "$TARGET_DIR" "$PLUGINS_DIR"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "MacRibbon telepítése..."
-rm -rf "$TARGET_DIR/MacRibbon.bundle"
+echo "Installing MacRibbon v2.0.0..."
+rm -rf "$TARGET_DIR/MacRibbon.bundle" "$PLUGINS_DIR/MacRibbon.bundle"
 cp -R "$SCRIPT_DIR/MacRibbon.bundle" "$TARGET_DIR/"
+cp -R "$SCRIPT_DIR/MacRibbon.bundle" "$PLUGINS_DIR/"
 
-# Also configure acad.lsp autoload for safety
 python3 -c '
 import os, glob, re
 HOME = os.path.expanduser("~")
@@ -54,9 +56,7 @@ for sdir in autocad_support_dirs:
 '
 
 echo "========================================="
-echo "✅ MacRibbon sikeresen telepítve!"
-echo "Most indítsd el vagy indítsd újra az AutoCAD-et."
-echo "AutoCAD parancssor parancsok:"
-echo "  - RIBBON vagy MR : Ribbon megjelenítése"
-echo "  - RIBBONCLOSE    : Visszaváltás Mac eszköztárra"
+echo "MacRibbon v2.0.0 installed successfully."
+echo "Restart AutoCAD for Mac to load the Ribbon."
+echo "Commands: RIBBON, MR, RIBBONCLOSE, MRSYNC"
 echo "========================================="

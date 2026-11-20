@@ -15,13 +15,12 @@ DEST_PLUGINS = $(HOME)/Library/Application Support/Autodesk/ApplicationPlugins/$
 all: $(PKG_DIR)
 
 $(PKG_DIR): $(SRC) ui/style.css ui/ribbon.js scripts/generate_ribbon.py
+	@rm -rf $(PKG_DIR)
 	@mkdir -p $(PKG_DIR)/Contents/MacOS
 	@mkdir -p $(INNER_BUNDLE)/Contents/MacOS
 	@mkdir -p $(PKG_DIR)/Contents/Resources
-	@echo "Generating full 7-tab Windows Ribbon HTML..."
+	@echo "Generating 10-tab Autodesk Windows Ribbon HTML..."
 	@python3 scripts/generate_ribbon.py
-	@echo "Bundling self-contained HTML assets..."
-	@python3 scripts/bundle_html.py
 	@echo "Compiling Universal Binary (arm64 + x86_64) bundle..."
 	$(CC) $(CFLAGS) $(FRAMEWORKS) $(SRC) -o $(INNER_BUNDLE)/Contents/MacOS/MacRibbon
 	@cp $(INNER_BUNDLE)/Contents/MacOS/MacRibbon $(PKG_DIR)/Contents/MacOS/MacRibbon
@@ -33,7 +32,7 @@ $(PKG_DIR): $(SRC) ui/style.css ui/ribbon.js scripts/generate_ribbon.py
 	@echo "Ad-hoc signing binaries..."
 	@codesign -s - --force $(PKG_DIR)/Contents/MacOS/MacRibbon.dylib
 	@codesign -s - --force $(INNER_BUNDLE)
-	@codesign -s - --force $(PKG_DIR)/Contents/MacOS/MacRibbon
+	@codesign -s - --force $(PKG_DIR)/Contents/MacOS/MacRibbon || true
 	@echo "Copying manifests and resources..."
 	@cp PackageContents.xml $(PKG_DIR)/
 	@cp ui/index.html $(PKG_DIR)/Contents/Resources/

@@ -11,6 +11,10 @@ extern void LogMacRibbon(NSString *fmt, ...);
     // Return nil to completely suppress default WebKit Safari context menus (Reload, Inspect, etc.)
     return nil;
 }
+
+- (BOOL)acceptsFirstMouse:(NSEvent *)event {
+    return YES;
+}
 @end
 
 @interface RibbonViewController () {
@@ -70,17 +74,11 @@ extern void LogMacRibbon(NSString *fmt, ...);
     }
 
     NSURL *htmlURL = [_resourcesURL URLByAppendingPathComponent:@"index.html"];
-    NSError *error = nil;
-    NSString *htmlString = [NSString stringWithContentsOfURL:htmlURL encoding:NSUTF8StringEncoding error:&error];
-
-    if (error || !htmlString) {
-        LogMacRibbon(@"Failed to read index.html at %@, error: %@", [htmlURL path], error);
-        // Fallback to loadFileURL
+    if ([[NSFileManager defaultManager] fileExistsAtPath:[htmlURL path]]) {
+        LogMacRibbon(@"Loading index.html via loadFileURL with read access to: %@", [_resourcesURL path]);
         [_webView loadFileURL:htmlURL allowingReadAccessToURL:_resourcesURL];
     } else {
-        LogMacRibbon(@"Loaded index.html string (%lu bytes), passing to webView with baseURL: %@", 
-                     (unsigned long)htmlString.length, [_resourcesURL path]);
-        [_webView loadHTMLString:htmlString baseURL:_resourcesURL];
+        LogMacRibbon(@"Error: index.html not found at %@", [htmlURL path]);
     }
 }
 
@@ -88,6 +86,35 @@ extern void LogMacRibbon(NSString *fmt, ...);
     _currentHeight = 115.0;
     dispatch_async(dispatch_get_main_queue(), ^{
         [self loadRibbonContent];
+    });
+}
+
+- (void)evaluateJavaScript:(NSString *)js completionHandler:(void (^)(id result, NSError *error))completionHandler {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (self->_webView) {
+            [self->_webView evaluateJavaScript:js completionHandler:completionHandler];
+        } else if (completionHandler) {
+            completionHandler(nil, [NSError errorWithDomain:@"MacRibbon" code:-1 userInfo:@{NSLocalizedDescriptionKey: @"WebView is nil"}]);
+        }
+    });
+}
+
+- (void)captureSnapshotToFile:(NSString *)filePath {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (!self->_webView) return;
+        WKSnapshotConfiguration *config = [[WKSnapshotConfiguration alloc] init];
+        [self->_webView takeSnapshotWithConfiguration:config completionHandler:^(NSImage *image, NSError *error) {
+            if (error || !image) {
+                LogMacRibbon(@"Snapshot failed: %@", error);
+                return;
+            }
+            CGImageRef cgRef = [image CGImageForProposedRect:NULL context:nil hints:nil];
+            if (!cgRef) return;
+            NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithCGImage:cgRef];
+            NSData *pngData = [rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+            [pngData writeToFile:filePath atomically:YES];
+            LogMacRibbon(@"Ribbon snapshot saved successfully to %@", filePath);
+        }];
     });
 }
 

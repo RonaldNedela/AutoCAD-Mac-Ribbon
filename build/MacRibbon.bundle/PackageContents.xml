@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ApplicationPackage 
     SchemaVersion="1.0" 
-    AppVersion="1.0.0" 
+    AppVersion="2.0.0" 
     Author="MacRibbon" 
     ProductCode="{3F5B8B9A-C1A2-4E38-9B5A-9D8F1A7C5D23}" 
     Name="MacRibbon" 

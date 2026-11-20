@@ -1,6 +1,7 @@
 #import "RibbonManager.h"
 #import "CommandExecutor.h"
 #import <CoreGraphics/CoreGraphics.h>
+#import <objc/message.h>
 
 extern void LogMacRibbon(NSString *fmt, ...);
 
@@ -8,9 +9,12 @@ extern void LogMacRibbon(NSString *fmt, ...);
     RibbonViewController *_ribbonVC;
     NSWindow *_targetWindow;
     BOOL _isVisible;
+    BOOL _hasLoadedOnce;
+    CGFloat _baseRibbonHeight;
     NSTimer *_pollTimer;
     NSColor *_lastSampledColor;
     NSDate *_lastHtmlModDate;
+    NSDate *_lastStateModDate;
     NSButton *_floatingSwitchButton;
 }
 @end
@@ -30,6 +34,7 @@ extern void LogMacRibbon(NSString *fmt, ...);
     self = [super init];
     if (self) {
         _isVisible = NO;
+        _baseRibbonHeight = 115.0;
         [self locateResourcesAndInitVC];
     }
     return self;
@@ -42,6 +47,7 @@ extern void LogMacRibbon(NSString *fmt, ...);
     // Candidate resource directories
     NSArray<NSString *> *candidates = @[
         [resURL path] ?: @"",
+        @"/Users/Ronci/Documents/AutoCAD/AutoCAD-Mac-Ribbon/ui",
         [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/Autodesk/ApplicationAddins/MacRibbon.bundle/Contents/Resources"],
         [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/Autodesk/ApplicationPlugins/MacRibbon.bundle/Contents/Resources"],
         @"/Library/Application Support/Autodesk/ApplicationAddins/MacRibbon.bundle/Contents/Resources",
@@ -49,6 +55,7 @@ extern void LogMacRibbon(NSString *fmt, ...);
     ];
 
     for (NSString *candidate in candidates) {
+        if (candidate.length == 0) continue;
         NSString *testHtml = [candidate stringByAppendingPathComponent:@"index.html"];
         if ([[NSFileManager defaultManager] fileExistsAtPath:testHtml]) {
             resURL = [NSURL fileURLWithPath:candidate];
@@ -74,27 +81,12 @@ extern void LogMacRibbon(NSString *fmt, ...);
                                                  name:NSWindowDidResizeNotification
                                                object:nil];
 
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(onAppDidBecomeActive:)
-                                                 name:NSApplicationDidBecomeActiveNotification
-                                               object:nil];
-
-    [[NSDistributedNotificationCenter defaultCenter] addObserver:self
-                                                        selector:@selector(onSystemThemeChanged:)
-                                                            name:@"AppleInterfaceThemeChangedNotification"
-                                                          object:nil];
-
-    [[NSDistributedNotificationCenter defaultCenter] addObserver:self
-                                                        selector:@selector(onExternalCommandNotification:)
-                                                            name:@"com.ronci.macribbon.command"
-                                                          object:nil];
-
     dispatch_async(dispatch_get_main_queue(), ^{
         [self findAndAttachToTargetWindow];
     });
 
     if (!_pollTimer) {
-        _pollTimer = [NSTimer scheduledTimerWithTimeInterval:5.0
+        _pollTimer = [NSTimer scheduledTimerWithTimeInterval:1.5
                                                       target:self
                                                     selector:@selector(checkWindowStatus)
                                                     userInfo:nil
@@ -107,8 +99,19 @@ extern void LogMacRibbon(NSString *fmt, ...);
     [_pollTimer invalidate];
     _pollTimer = nil;
     [[NSNotificationCenter defaultCenter] removeObserver:self];
-    [[NSDistributedNotificationCenter defaultCenter] removeObserver:self];
     [self hideRibbon];
+}
+
++ (NSView *)findViewWithIdentifier:(NSString *)ident inView:(NSView *)root {
+    if (!root) return nil;
+    if ([root.identifier isEqualToString:ident]) {
+        return root;
+    }
+    for (NSView *sub in root.subviews) {
+        NSView *found = [RibbonManager findViewWithIdentifier:ident inView:sub];
+        if (found) return found;
+    }
+    return nil;
 }
 
 - (NSColor *)sampleAutoCADWindowColor {
@@ -116,18 +119,25 @@ extern void LogMacRibbon(NSString *fmt, ...);
     NSView *contentView = _targetWindow.contentView;
     if (!contentView) return nil;
 
-    NSRect bounds = contentView.bounds;
-    // Sample directly from the toolbar region of contentView (top area)
-    CGFloat sampleY = bounds.size.height - 15;
-    if (sampleY <= 0) sampleY = 10;
-    NSRect sampleRect = NSMakeRect(bounds.size.width * 0.4, sampleY, 4, 4);
+    // Prefer sampling from AutoCAD's native fileTabPane so our Ribbon WebView never samples itself
+    NSView *sampleView = [RibbonManager findViewWithIdentifier:@"fileTabPane" inView:contentView];
+    if (!sampleView || sampleView.bounds.size.height < 8) {
+        sampleView = contentView;
+    }
 
-    NSBitmapImageRep *rep = [contentView bitmapImageRepForCachingDisplayInRect:sampleRect];
+    NSRect bounds = sampleView.bounds;
+    CGFloat sampleX = fmax(4.0, bounds.size.width * 0.65);
+    CGFloat sampleY = (sampleView == contentView)
+        ? fmax(10.0, bounds.size.height - _baseRibbonHeight - 12.0)
+        : fmax(2.0, bounds.size.height * 0.5);
+    NSRect sampleRect = NSMakeRect(sampleX, sampleY, 4, 4);
+
+    NSBitmapImageRep *rep = [sampleView bitmapImageRepForCachingDisplayInRect:sampleRect];
     if (!rep) return nil;
 
-    [contentView cacheDisplayInRect:sampleRect toBitmapImageRep:rep];
+    [sampleView cacheDisplayInRect:sampleRect toBitmapImageRep:rep];
     NSColor *color = [rep colorAtX:2 y:2];
-    return color;
+    return [color colorUsingColorSpace:[NSColorSpace sRGBColorSpace]] ?: color;
 }
 
 - (void)updateThemeFromAutoCAD {
@@ -151,53 +161,71 @@ extern void LogMacRibbon(NSString *fmt, ...);
     CGFloat lum = 0.299 * r + 0.587 * g + 0.114 * b;
     BOOL isLight = (lum > 0.55);
 
-    // Compute relative palette shades
+    // Compute relative palette shades with guaranteed WCAG AA contrast
     CGFloat tabR, tabG, tabB;
+    CGFloat tabHovR, tabHovG, tabHovB;
     CGFloat hovR, hovG, hovB;
+    CGFloat hovBorR, hovBorG, hovBorB;
+    CGFloat actR, actG, actB;
     CGFloat borR, borG, borB;
+    CGFloat menuBorR, menuBorG, menuBorB;
 
     if (isLight) {
-        tabR = fmax(0.0, r * 0.93);
-        tabG = fmax(0.0, g * 0.93);
-        tabB = fmax(0.0, b * 0.93);
-
-        hovR = fmax(0.0, r * 0.91);
-        hovG = fmax(0.0, g * 0.91);
-        hovB = fmax(0.0, b * 0.91);
-
-        borR = fmax(0.0, r * 0.84);
-        borG = fmax(0.0, g * 0.84);
-        borB = fmax(0.0, b * 0.84);
+        tabR = fmax(0.0, r * 0.94); tabG = fmax(0.0, g * 0.94); tabB = fmax(0.0, b * 0.94);
+        tabHovR = fmax(0.0, r * 0.97); tabHovG = fmax(0.0, g * 0.97); tabHovB = fmax(0.0, b * 0.97);
+        hovR = fmax(0.0, r * 0.91); hovG = fmax(0.0, g * 0.91); hovB = fmax(0.0, b * 0.91);
+        hovBorR = fmax(0.0, r * 0.78); hovBorG = fmax(0.0, g * 0.78); hovBorB = fmax(0.0, b * 0.78);
+        actR = fmax(0.0, r * 0.86); actG = fmax(0.0, g * 0.86); actB = fmax(0.0, b * 0.86);
+        borR = fmax(0.0, r * 0.82); borG = fmax(0.0, g * 0.82); borB = fmax(0.0, b * 0.82);
+        menuBorR = fmax(0.0, r * 0.74); menuBorG = fmax(0.0, g * 0.74); menuBorB = fmax(0.0, b * 0.74);
     } else {
-        tabR = fmax(0.0, r * 0.70);
-        tabG = fmax(0.0, g * 0.70);
-        tabB = fmax(0.0, b * 0.70);
-
-        hovR = fmin(1.0, r * 1.25);
-        hovG = fmin(1.0, g * 1.25);
-        hovB = fmin(1.0, b * 1.25);
-
-        borR = fmax(0.0, r * 0.78);
-        borG = fmax(0.0, g * 0.78);
-        borB = fmax(0.0, b * 0.78);
+        tabR = fmax(0.0, r * 0.72); tabG = fmax(0.0, g * 0.72); tabB = fmax(0.0, b * 0.72);
+        tabHovR = fmax(0.0, r * 0.86); tabHovG = fmax(0.0, g * 0.86); tabHovB = fmax(0.0, b * 0.86);
+        hovR = fmin(1.0, r * 1.18); hovG = fmin(1.0, g * 1.18); hovB = fmin(1.0, b * 1.18);
+        hovBorR = fmin(1.0, r * 1.38); hovBorG = fmin(1.0, g * 1.38); hovBorB = fmin(1.0, b * 1.38);
+        actR = fmax(0.0, r * 0.76); actG = fmax(0.0, g * 0.76); actB = fmax(0.0, b * 0.76);
+        borR = fmax(0.0, r * 0.68); borG = fmax(0.0, g * 0.68); borB = fmax(0.0, b * 0.68);
+        menuBorR = fmin(1.0, r * 1.24); menuBorG = fmin(1.0, g * 1.24); menuBorB = fmin(1.0, b * 1.24);
     }
 
     NSString *hexBg = [NSString stringWithFormat:@"#%02x%02x%02x", (int)(r * 255), (int)(g * 255), (int)(b * 255)];
     NSString *hexTabs = [NSString stringWithFormat:@"#%02x%02x%02x", (int)(tabR * 255), (int)(tabG * 255), (int)(tabB * 255)];
+    NSString *hexTabHov = [NSString stringWithFormat:@"#%02x%02x%02x", (int)(tabHovR * 255), (int)(tabHovG * 255), (int)(tabHovB * 255)];
     NSString *hexHover = [NSString stringWithFormat:@"#%02x%02x%02x", (int)(hovR * 255), (int)(hovG * 255), (int)(hovB * 255)];
+    NSString *hexHovBor = [NSString stringWithFormat:@"#%02x%02x%02x", (int)(hovBorR * 255), (int)(hovBorG * 255), (int)(hovBorB * 255)];
+    NSString *hexAct = [NSString stringWithFormat:@"#%02x%02x%02x", (int)(actR * 255), (int)(actG * 255), (int)(actB * 255)];
     NSString *hexBorder = [NSString stringWithFormat:@"#%02x%02x%02x", (int)(borR * 255), (int)(borG * 255), (int)(borB * 255)];
+    NSString *hexMenuBor = [NSString stringWithFormat:@"#%02x%02x%02x", (int)(menuBorR * 255), (int)(menuBorG * 255), (int)(menuBorB * 255)];
+    NSString *hexMenuBg = isLight ? @"#f5f7fa" : hexTabs;
+    NSString *hexPanelTitle = isLight ? @"#3c4654" : @"#dce4ef";
+    NSString *hexTextMain = isLight ? @"#1c232b" : @"#f3f6fa";
+    NSString *hexTextMuted = isLight ? @"#444f5e" : @"#d3dce8";
+    NSString *hexTabText = isLight ? @"#2b3440" : @"#d5dde8";
+    NSString *hexTooltipCmd = isLight ? @"#0056a3" : @"#8ad0ff";
 
     LogMacRibbon(@"AutoCAD Theme synchronized! Sampled: %@, isLight: %d", hexBg, isLight);
 
     NSString *js = [NSString stringWithFormat:
-        @"document.documentElement.style.setProperty('--cad-ribbon-bg', '%@');"
-        @"document.documentElement.style.setProperty('--cad-tab-bar-bg', '%@');"
-        @"document.documentElement.style.setProperty('--cad-tab-active-bg', '%@');"
-        @"document.documentElement.style.setProperty('--cad-btn-hover', '%@');"
-        @"document.documentElement.style.setProperty('--cad-panel-border', '%@');"
-        @"document.documentElement.style.setProperty('--cad-menu-bg', '%@');"
-        @"document.body.classList.toggle('light-theme', %s);",
-        hexBg, hexTabs, hexBg, hexHover, hexBorder, hexTabs, isLight ? "true" : "false"];
+        @"var r=document.documentElement.style;"
+        @"r.setProperty('--cad-ribbon-bg','%@');"
+        @"r.setProperty('--cad-tab-bar-bg','%@');"
+        @"r.setProperty('--cad-tab-active-bg','%@');"
+        @"r.setProperty('--cad-tab-hover-bg','%@');"
+        @"r.setProperty('--cad-btn-hover','%@');"
+        @"r.setProperty('--cad-btn-border-hover','%@');"
+        @"r.setProperty('--cad-btn-active','%@');"
+        @"r.setProperty('--cad-panel-border','%@');"
+        @"r.setProperty('--cad-menu-bg','%@');"
+        @"r.setProperty('--cad-menu-border','%@');"
+        @"r.setProperty('--cad-panel-title','%@');"
+        @"r.setProperty('--cad-text-main','%@');"
+        @"r.setProperty('--cad-text-muted','%@');"
+        @"r.setProperty('--cad-tab-text','%@');"
+        @"r.setProperty('--cad-tooltip-cmd','%@');"
+        @"document.body.classList.toggle('light-theme',%s);",
+        hexBg, hexTabs, hexBg, hexTabHov, hexHover, hexHovBor, hexAct,
+        hexBorder, hexMenuBg, hexMenuBor, hexPanelTitle, hexTextMain,
+        hexTextMuted, hexTabText, hexTooltipCmd, isLight ? "true" : "false"];
 
     dispatch_async(dispatch_get_main_queue(), ^{
         [_ribbonVC.webView evaluateJavaScript:js completionHandler:nil];
@@ -205,47 +233,43 @@ extern void LogMacRibbon(NSString *fmt, ...);
 }
 
 - (void)checkHtmlUpdate {
-    // Only check disk modification date if development reload flag is explicitly enabled
-    if (!getenv("MACRIBBON_DEV_RELOAD")) return;
     if (!_ribbonVC || !_ribbonVC.resourcesURL) return;
-    NSURL *htmlURL = [_ribbonVC.resourcesURL URLByAppendingPathComponent:@"index.html"];
-    if (!htmlURL) return;
-
-    NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:[htmlURL path] error:nil];
-    NSDate *modDate = attrs[NSFileModificationDate];
-    if (modDate) {
-        if (_lastHtmlModDate && [modDate timeIntervalSinceDate:_lastHtmlModDate] > 0.5) {
-            _lastHtmlModDate = modDate;
-            LogMacRibbon(@"index.html modified on disk - reloading Ribbon WebView");
+    NSArray<NSString *> *watched = @[@"index.html", @"style.css", @"ribbon.js"];
+    NSDate *latestDate = nil;
+    for (NSString *fname in watched) {
+        NSURL *fileURL = [_ribbonVC.resourcesURL URLByAppendingPathComponent:fname];
+        NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:[fileURL path] error:nil];
+        NSDate *d = attrs[NSFileModificationDate];
+        if (d && (!latestDate || [d compare:latestDate] == NSOrderedDescending)) {
+            latestDate = d;
+        }
+    }
+    if (latestDate) {
+        if (_lastHtmlModDate && [latestDate timeIntervalSinceDate:_lastHtmlModDate] > 0.5) {
+            _lastHtmlModDate = latestDate;
+            LogMacRibbon(@"Ribbon UI assets modified on disk - automatically reloading Ribbon WebView!");
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self reloadRibbon];
             });
         } else if (!_lastHtmlModDate) {
-            _lastHtmlModDate = modDate;
+            _lastHtmlModDate = latestDate;
         }
     }
 }
 
-- (void)processCommand:(NSString *)cmd {
-    if (!cmd || cmd.length == 0) return;
-    LogMacRibbon(@"processCommand received: '%@'", cmd);
-    if ([cmd isEqualToString:@"dockInspectorLeft"]) {
-        [self ribbonRequestedDockInspectorLeft:YES];
-    } else if ([cmd isEqualToString:@"dockInspectorRight"]) {
-        [self ribbonRequestedDockInspectorLeft:NO];
-    } else if ([cmd isEqualToString:@"toggleHidePalettes"]) {
-        [self ribbonRequestedToggleHidePalettes];
-    } else if ([cmd isEqualToString:@"switchToMacToolbar"] || [cmd isEqualToString:@"ribbonclose"] || [cmd isEqualToString:@"hideRibbon"]) {
-        [self switchToMacToolbar];
-    } else if ([cmd isEqualToString:@"switchToWindowsRibbon"] || [cmd isEqualToString:@"ribbon"] || [cmd isEqualToString:@"mr"] || [cmd isEqualToString:@"showRibbon"]) {
-        [self switchToWindowsRibbon];
-    } else if ([cmd isEqualToString:@"toggleRibbon"]) {
-        [self toggleRibbon];
-    } else if ([cmd isEqualToString:@"updateTheme"]) {
-        [self updateThemeFromAutoCAD];
-    } else if ([cmd isEqualToString:@"reload"]) {
-        [self reloadRibbon];
+- (void)checkAutoCADStateSync {
+    NSString *statePath = @"/tmp/macribbon_state.json";
+    NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:statePath error:nil];
+    NSDate *modDate = attrs[NSFileModificationDate];
+    if (!modDate) return;
+    if (_lastStateModDate && [modDate timeIntervalSinceDate:_lastStateModDate] < 0.1) {
+        return;
     }
+    _lastStateModDate = modDate;
+    NSString *jsonStr = [NSString stringWithContentsOfFile:statePath encoding:NSUTF8StringEncoding error:nil];
+    if (!jsonStr || jsonStr.length == 0) return;
+    NSString *js = [NSString stringWithFormat:@"if (window.syncAutoCADState) window.syncAutoCADState(%@);", jsonStr];
+    [_ribbonVC evaluateJavaScript:js completionHandler:nil];
 }
 
 - (void)checkExternalCommands {
@@ -253,31 +277,58 @@ extern void LogMacRibbon(NSString *fmt, ...);
     if ([[NSFileManager defaultManager] fileExistsAtPath:cmdPath]) {
         NSString *cmd = [[NSString stringWithContentsOfFile:cmdPath encoding:NSUTF8StringEncoding error:nil] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         [[NSFileManager defaultManager] removeItemAtPath:cmdPath error:nil];
-        [self processCommand:cmd];
+        LogMacRibbon(@"checkExternalCommands received: '%@'", cmd);
+        if ([cmd isEqualToString:@"dockInspectorLeft"]) {
+            [self ribbonRequestedDockInspectorLeft:YES];
+        } else if ([cmd isEqualToString:@"dockInspectorRight"]) {
+            [self ribbonRequestedDockInspectorLeft:NO];
+        } else if ([cmd isEqualToString:@"toggleHidePalettes"]) {
+            [self ribbonRequestedToggleHidePalettes];
+        } else if ([cmd isEqualToString:@"switchToMacToolbar"] || [cmd isEqualToString:@"ribbonclose"] || [cmd isEqualToString:@"hideRibbon"]) {
+            [self switchToMacToolbar];
+        } else if ([cmd isEqualToString:@"switchToWindowsRibbon"] || [cmd isEqualToString:@"ribbon"] || [cmd isEqualToString:@"mr"] || [cmd isEqualToString:@"showRibbon"]) {
+            [self switchToWindowsRibbon];
+        } else if ([cmd isEqualToString:@"ensureRibbonVisible"]) {
+            [self ensureRibbonVisible];
+        } else if ([cmd isEqualToString:@"toggleRibbon"]) {
+            [self toggleRibbon];
+        } else if ([cmd hasPrefix:@"evalJs:"]) {
+            NSString *js = [cmd substringFromIndex:7];
+            LogMacRibbon(@"Executing evalJs: %@", js);
+            [_ribbonVC evaluateJavaScript:js completionHandler:^(id result, NSError *error) {
+                if (error) {
+                    LogMacRibbon(@"evalJs error: %@", error.localizedDescription);
+                } else {
+                    LogMacRibbon(@"evalJs result: %@", result);
+                }
+            }];
+        } else if ([cmd hasPrefix:@"snapshot:"]) {
+            NSString *path = [cmd substringFromIndex:9];
+            [_ribbonVC captureSnapshotToFile:path];
+        } else if ([cmd hasPrefix:@"winSnapshot:"]) {
+            NSString *path = [cmd substringFromIndex:12];
+            [self captureWindowSnapshotToFile:path];
+        }
     }
 }
 
-- (void)onExternalCommandNotification:(NSNotification *)note {
-    NSString *cmd = note.object;
-    if ([cmd isKindOfClass:[NSString class]]) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self processCommand:cmd];
-        });
-    }
-}
-
-- (void)onSystemThemeChanged:(NSNotification *)note {
-    (void)note;
-    LogMacRibbon(@"AppleInterfaceThemeChangedNotification received, updating theme");
+- (void)captureWindowSnapshotToFile:(NSString *)filePath {
     dispatch_async(dispatch_get_main_queue(), ^{
-        [self updateThemeFromAutoCAD];
-    });
-}
-
-- (void)onAppDidBecomeActive:(NSNotification *)note {
-    (void)note;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [self updateThemeFromAutoCAD];
+        if (!self->_targetWindow || !self->_targetWindow.contentView) {
+            LogMacRibbon(@"captureWindowSnapshotToFile failed: targetWindow or contentView is nil");
+            return;
+        }
+        NSView *view = self->_targetWindow.contentView;
+        NSRect bounds = view.bounds;
+        NSBitmapImageRep *rep = [view bitmapImageRepForCachingDisplayInRect:bounds];
+        if (!rep) {
+            LogMacRibbon(@"captureWindowSnapshotToFile failed: bitmapImageRep is nil");
+            return;
+        }
+        [view cacheDisplayInRect:bounds toBitmapImageRep:rep];
+        NSData *pngData = [rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+        [pngData writeToFile:filePath atomically:YES];
+        LogMacRibbon(@"Window snapshot successfully saved to: %@", filePath);
     });
 }
 
@@ -286,7 +337,9 @@ extern void LogMacRibbon(NSString *fmt, ...);
     if (!_targetWindow || ![_targetWindow isVisible]) {
         [self findAndAttachToTargetWindow];
     } else {
+        [self updateThemeFromAutoCAD];
         [self checkHtmlUpdate];
+        [self checkAutoCADStateSync];
     }
 }
 
@@ -296,8 +349,6 @@ extern void LogMacRibbon(NSString *fmt, ...);
     if ([self isCandidateWindow:win]) {
         if (_targetWindow != win) {
             [self attachToWindow:win];
-        } else {
-            [self updateThemeFromAutoCAD];
         }
     }
 }
@@ -311,23 +362,26 @@ extern void LogMacRibbon(NSString *fmt, ...);
 - (BOOL)isCandidateWindow:(NSWindow *)win {
     if (!win) return NO;
     if (!win.isVisible) return NO;
+    if ([win isKindOfClass:[NSPanel class]]) return NO;
+    if (win.sheetParent != nil) return NO;
 
     NSString *clsName = NSStringFromClass([win class]);
-    NSString *title = win.title ?: @"";
 
-    // AcMainWindow is AutoCAD's main window class
+    // Explicitly reject modal dialogs, sheets, splash screens, flyouts, and auxiliary windows
+    if ([clsName containsString:@"Modal"] ||
+        [clsName containsString:@"Dialog"] ||
+        [clsName containsString:@"Splash"] ||
+        [clsName containsString:@"Panel"] ||
+        [clsName containsString:@"Flyout"] ||
+        [clsName containsString:@"Visor"] ||
+        [clsName containsString:@"TUI"] ||
+        [clsName containsString:@"Sheet"] ||
+        [clsName containsString:@"Alert"]) {
+        return NO;
+    }
+
+    // AcMainWindow is AutoCAD's sole primary document window class
     if ([clsName containsString:@"AcMainWindow"]) {
-        return YES;
-    }
-
-    // Check by window title
-    if ([title containsString:@"AutoCAD"] || [title containsString:@".dwg"]) {
-        return YES;
-    }
-
-    // General fallback: main size window
-    NSRect frame = win.frame;
-    if (frame.size.width >= 600 && frame.size.height >= 450) {
         return YES;
     }
 
@@ -359,6 +413,55 @@ extern void LogMacRibbon(NSString *fmt, ...);
     }
 }
 
+- (id)paneLayoutViewController {
+    if (!_targetWindow) return nil;
+    id wc = [_targetWindow windowController];
+    SEL sel = NSSelectorFromString(@"paneLayoutViewController");
+    if (wc && [wc respondsToSelector:sel]) {
+        return ((id (*)(id, SEL))objc_msgSend)(wc, sel);
+    }
+    return nil;
+}
+
+- (void)setLeftToolSetsPaneHidden:(BOOL)hidden {
+    id paneVC = [self paneLayoutViewController];
+    if (paneVC) {
+        SEL actionSel = NSSelectorFromString(hidden ? @"hidePane:" : @"unhidePane:");
+        if ([paneVC respondsToSelector:actionSel]) {
+            ((void (*)(id, SEL, NSUInteger))objc_msgSend)(paneVC, actionSel, 0); // 0 = leftPane (Tool Sets)
+            LogMacRibbon(@"setLeftToolSetsPaneHidden(%d) via ACPaneLayoutViewController", hidden);
+            return;
+        }
+    }
+    [[CommandExecutor sharedInstance] executeCommand:hidden ? @"_TOOLSETSCLOSE\n" : @"_TOOLSETS\n"];
+}
+
+- (BOOL)updateTopSpacerConstraint:(CGFloat)targetHeight {
+    if (!_targetWindow || !_targetWindow.contentView) return NO;
+    NSView *sepView = [RibbonManager findViewWithIdentifier:@"separatorView" inView:_targetWindow.contentView];
+    if (!sepView) return NO;
+
+    NSArray<NSView *> *constraintHolders = sepView.superview ? @[sepView, sepView.superview] : @[sepView];
+    for (NSView *holder in constraintHolders) {
+        for (NSLayoutConstraint *c in holder.constraints) {
+            if (c.firstItem == sepView &&
+                c.firstAttribute == NSLayoutAttributeHeight &&
+                c.secondItem == nil) {
+                if (fabs(c.constant - targetHeight) > 0.5) {
+                    c.constant = targetHeight;
+                    [sepView setNeedsLayout:YES];
+                    [sepView.superview setNeedsLayout:YES];
+                    [sepView.superview.superview setNeedsLayout:YES];
+                    [_targetWindow.contentView layoutSubtreeIfNeeded];
+                    LogMacRibbon(@"Updated separatorView top spacer constraint to %.1f", targetHeight);
+                }
+                return YES;
+            }
+        }
+    }
+    return NO;
+}
+
 - (void)attachToWindow:(NSWindow *)window {
     if (!window || !window.contentView) return;
 
@@ -373,68 +476,10 @@ extern void LogMacRibbon(NSString *fmt, ...);
     [contentView addSubview:_ribbonVC.view positioned:NSWindowAbove relativeTo:nil];
 
     _isVisible = YES;
-    [[CommandExecutor sharedInstance] executeCommand:@"_TOOLSETSCLOSE\n"];
-    [self ensurePalettesHidden:YES];
+    _hasLoadedOnce = YES;
+    _baseRibbonHeight = (_ribbonVC.currentHeight > 0 && _ribbonVC.currentHeight <= 125.0) ? _ribbonVC.currentHeight : 115.0;
+    [self setLeftToolSetsPaneHidden:YES];
     [self updateRibbonFrame];
-    [self updateThemeFromAutoCAD];
-}
-
-static void dumpViewHierarchy(NSView *v, int depth) {
-    if (depth > 10) return;
-    NSString *indent = [@"" stringByPaddingToLength:depth*2 withString:@" " startingAtIndex:0];
-    LogMacRibbon(@"%@|-- %@ frame=%@ flipped=%d", indent, NSStringFromClass([v class]), NSStringFromRect(v.frame), (int)v.isFlipped);
-    for (NSView *sub in v.subviews) {
-        dumpViewHierarchy(sub, depth + 1);
-    }
-}
-
-- (CGFloat)detectRightSidebarWidth {
-    if (!_targetWindow || !_targetWindow.contentView) return 0.0;
-
-    // Check Window menu: if "Show Palettes" is present, palettes are hidden -> 0.0
-    NSMenu *mainMenu = [NSApp mainMenu];
-    if (mainMenu) {
-        for (NSMenuItem *top in mainMenu.itemArray) {
-            if ([top.title isEqualToString:@"Window"] && top.hasSubmenu) {
-                [top.submenu update];
-                for (NSMenuItem *sub in top.submenu.itemArray) {
-                    if ([sub.title isEqualToString:@"Show Palettes"]) {
-                        return 0.0;
-                    }
-                }
-            }
-        }
-    }
-
-    // Palettes are visible. Detect inspector width on the right:
-    NSView *contentView = _targetWindow.contentView;
-    CGFloat winWidth = contentView.bounds.size.width;
-    CGFloat rightWidth = 0.0;
-
-    for (NSView *sub in contentView.subviews) {
-        if (sub != _ribbonVC.view && [NSStringFromClass([sub class]) containsString:@"PaneLayout"]) {
-            for (NSView *split in sub.subviews) {
-                if ([NSStringFromClass([split class]) containsString:@"SplitView"]) {
-                    for (NSView *pane in split.subviews) {
-                        for (NSView *inner in pane.subviews) {
-                            if ([NSStringFromClass([inner class]) containsString:@"SplitView"]) {
-                                for (NSView *innerPane in inner.subviews) {
-                                    NSRect f = innerPane.frame;
-                                    if (fabs((f.origin.x + f.size.width) - winWidth) < 2.0 && f.size.width > 50 && f.size.width < 500) {
-                                        rightWidth = f.size.width;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if (rightWidth <= 0.0) {
-        rightWidth = 236.0;
-    }
-    return rightWidth;
 }
 
 - (void)updateRibbonFrame {
@@ -444,18 +489,24 @@ static void dumpViewHierarchy(NSView *v, int depth) {
     NSRect bounds = contentView.bounds;
     CGFloat h = _ribbonVC.currentHeight;
 
-    // Top Quick Access toolbar height in AutoCAD Mac is 24.0 (y=0 to 24 from top)
-    CGFloat topToolbarH = 24.0;
+    if (_isVisible && !_ribbonVC.view.hidden && h > 0.0 && h <= 125.0) {
+        _baseRibbonHeight = h;
+    }
 
-    // Dynamically detect right sidebar width so Ribbon never covers the Inspector palette header
-    CGFloat rightSidebarW = [self detectRightSidebarWidth];
-    CGFloat ribbonWidth = bounds.size.width - rightSidebarW;
+    // Reserve space at the very top of AutoCAD's ACPaneLayoutView (above fileTabPane and centerPane)
+    // so the Ribbon never overlaps the Drawing Canvas, ViewCube, Viewport Controls, Start Tab, or Right Inspector!
+    CGFloat reservedTopH = (_isVisible && !_ribbonVC.view.hidden) ? _baseRibbonHeight : 1.0;
+    BOOL hasSpacerConstraint = [self updateTopSpacerConstraint:reservedTopH];
 
-    // Pin Ribbon directly beneath the top Quick Access toolbar
-    NSRect newFrame = NSMakeRect(0, bounds.size.height - topToolbarH - h, ribbonWidth, h);
+    // If top spacer constraint is active, Ribbon sits at y = bounds.size.height - h (above fileTabPane, matching Windows AutoCAD).
+    // Otherwise fallback to sitting below the 24px fileTabPane.
+    CGFloat topOffset = hasSpacerConstraint ? 0.0 : 24.0;
+    CGFloat ribbonWidth = bounds.size.width;
+
+    NSRect newFrame = NSMakeRect(0, bounds.size.height - topOffset - h, ribbonWidth, h);
     _ribbonVC.view.frame = newFrame;
     _ribbonVC.view.autoresizingMask = NSViewWidthSizable | NSViewMinYMargin;
-    LogMacRibbon(@"Ribbon frame updated to %@ (rightSidebarW=%.1f)", NSStringFromRect(newFrame), rightSidebarW);
+    LogMacRibbon(@"Ribbon frame updated to %@ (baseH=%.1f, spacer=%d)", NSStringFromRect(newFrame), _baseRibbonHeight, hasSpacerConstraint);
 }
 
 - (void)showRibbon {
@@ -490,41 +541,52 @@ static void dumpViewHierarchy(NSView *v, int depth) {
 }
 
 - (void)switchToMacToolbar {
-    LogMacRibbon(@"switchToMacToolbar: Hiding Ribbon, showing native Mac Tool Sets palette and palettes");
+    LogMacRibbon(@"switchToMacToolbar: Hiding Ribbon, showing native Mac Tool Sets palette");
     [self hideRibbon];
-    [[CommandExecutor sharedInstance] executeCommand:@"_TOOLSETS\n"];
-    [self ensurePalettesHidden:NO];
+    [self setLeftToolSetsPaneHidden:NO];
     [self showFloatingSwitchButton];
 }
 
 - (void)switchToWindowsRibbon {
-    LogMacRibbon(@"switchToWindowsRibbon: Showing Ribbon, closing native Mac Tool Sets palette, hiding sidebar palettes");
+    LogMacRibbon(@"switchToWindowsRibbon: Showing Ribbon, closing native Mac Tool Sets palette");
     [self hideFloatingSwitchButton];
-    [[CommandExecutor sharedInstance] executeCommand:@"_TOOLSETSCLOSE\n"];
-    [self ensurePalettesHidden:YES];
+    [self setLeftToolSetsPaneHidden:YES];
+    _baseRibbonHeight = 115.0;
     if (_ribbonVC) {
         _ribbonVC.currentHeight = 115.0;
-        [_ribbonVC reloadRibbonContent];
+        if (!_hasLoadedOnce) {
+            _hasLoadedOnce = YES;
+            [_ribbonVC reloadRibbonContent];
+        }
     }
     [self showRibbon];
     [self updateRibbonFrame];
 }
 
+- (void)ensureRibbonVisible {
+    if (_isVisible && _targetWindow && _ribbonVC.view.superview == _targetWindow.contentView && !_ribbonVC.view.hidden) {
+        [self setLeftToolSetsPaneHidden:YES];
+        [self updateRibbonFrame];
+        [self checkAutoCADStateSync];
+        return;
+    }
+    [self switchToWindowsRibbon];
+}
+
 - (void)ensurePalettesHidden:(BOOL)hidden {
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSString *targetTitle = hidden ? @"Hide Palettes" : @"Show Palettes";
-        NSString *procName = [[NSProcessInfo processInfo] processName];
-        NSString *script = [NSString stringWithFormat:
-            @"tell application \"System Events\" to tell process \"%@\" to "
-            @"if exists (menu item \"%@\" of menu \"Window\" of menu bar item \"Window\" of menu bar 1) then "
-            @"click menu item \"%@\" of menu \"Window\" of menu bar item \"Window\" of menu bar 1",
-            procName, targetTitle, targetTitle];
-        NSAppleScript *as = [[NSAppleScript alloc] initWithSource:script];
-        [as executeAndReturnError:nil];
-        LogMacRibbon(@"ensurePalettesHidden(%d): Processed '%@' via AppleScript", hidden, targetTitle);
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            [self updateRibbonFrame];
-        });
+        id paneVC = [self paneLayoutViewController];
+        if (paneVC) {
+            SEL actionSel = NSSelectorFromString(hidden ? @"hidePane:" : @"unhidePane:");
+            if ([paneVC respondsToSelector:actionSel]) {
+                ((void (*)(id, SEL, NSUInteger))objc_msgSend)(paneVC, actionSel, 1); // 1 = rightPane (Layers/Properties Inspector)
+                LogMacRibbon(@"ensurePalettesHidden(%d) via ACPaneLayoutViewController", hidden);
+                [self updateRibbonFrame];
+                return;
+            }
+        }
+        [[CommandExecutor sharedInstance] executeCommand:hidden ? @"^C^C_HIDEPALETTES " : @"^C^C_SHOWPALETTES "];
+        [self updateRibbonFrame];
     });
 }
 
@@ -533,26 +595,32 @@ static void dumpViewHierarchy(NSView *v, int depth) {
     NSView *contentView = _targetWindow.contentView;
     NSRect bounds = contentView.bounds;
 
-    CGFloat btnW = 130;
+    CGFloat btnW = 145;
     CGFloat btnH = 21;
-    // Position cleanly in the top bar empty zone between Quick Access and User profile
+    // Position cleanly in the top bar empty zone between File Tabs and right edge
     CGFloat btnX = bounds.size.width - 320;
     CGFloat btnY = bounds.size.height - 23;
 
     if (!_floatingSwitchButton) {
         _floatingSwitchButton = [[NSButton alloc] initWithFrame:NSMakeRect(btnX, btnY, btnW, btnH)];
-        _floatingSwitchButton.title = @"Windows Ribbon";
-        _floatingSwitchButton.bezelStyle = NSBezelStyleInline;
+        _floatingSwitchButton.bordered = NO;
+        NSMutableParagraphStyle *para = [[NSMutableParagraphStyle alloc] init];
+        para.alignment = NSTextAlignmentCenter;
+        NSDictionary *attrs = @{
+            NSForegroundColorAttributeName: [NSColor colorWithCalibratedRed:0.93 green:0.95 blue:0.98 alpha:1.0],
+            NSFontAttributeName: [NSFont systemFontOfSize:11.0 weight:NSFontWeightMedium],
+            NSParagraphStyleAttributeName: para
+        };
+        _floatingSwitchButton.attributedTitle = [[NSAttributedString alloc] initWithString:@"Windows Ribbon" attributes:attrs];
         _floatingSwitchButton.target = self;
         _floatingSwitchButton.action = @selector(onFloatingSwitchClicked:);
-        _floatingSwitchButton.toolTip = @"Click to switch to Windows Ribbon";
+        _floatingSwitchButton.toolTip = @"Switch to Windows Ribbon (command: RIBBON)";
         _floatingSwitchButton.autoresizingMask = NSViewMinXMargin | NSViewMinYMargin;
         _floatingSwitchButton.wantsLayer = YES;
-        _floatingSwitchButton.layer.cornerRadius = 4.0;
+        _floatingSwitchButton.layer.cornerRadius = 2.0;
         _floatingSwitchButton.layer.borderWidth = 1.0;
-        _floatingSwitchButton.layer.borderColor = [[NSColor colorWithCalibratedRed:0.0 green:0.64 blue:1.0 alpha:0.8] CGColor];
-        _floatingSwitchButton.layer.backgroundColor = [[NSColor colorWithCalibratedRed:0.15 green:0.20 blue:0.26 alpha:0.95] CGColor];
-        _floatingSwitchButton.contentTintColor = [NSColor whiteColor];
+        _floatingSwitchButton.layer.borderColor = [[NSColor colorWithCalibratedRed:0.38 green:0.45 blue:0.54 alpha:0.95] CGColor];
+        _floatingSwitchButton.layer.backgroundColor = [[NSColor colorWithCalibratedRed:0.17 green:0.21 blue:0.26 alpha:0.98] CGColor];
         _floatingSwitchButton.layer.zPosition = 99999;
     } else {
         _floatingSwitchButton.frame = NSMakeRect(btnX, btnY, btnW, btnH);
@@ -587,6 +655,9 @@ static void dumpViewHierarchy(NSView *v, int depth) {
 
 - (void)ribbonRequestedHeight:(CGFloat)height {
     LogMacRibbon(@"Ribbon height requested: %.1f", height);
+    if (height > 0.0 && height <= 125.0) {
+        _baseRibbonHeight = height;
+    }
     [self updateRibbonFrame];
 }
 
@@ -603,28 +674,36 @@ static void dumpViewHierarchy(NSView *v, int depth) {
 }
 
 - (void)ribbonRequestedDockInspectorLeft:(BOOL)dockLeft {
-    // Left-docking by swapping ACSplitView subviews corrupts AutoCAD's Metal rendering viewport.
-    // Windows parity is achieved cleanly by ensurePalettesHidden:YES (full-width canvas with ViewCube top-right).
-    [self ensurePalettesHidden:YES];
+    [self ensurePalettesHidden:dockLeft];
 }
 
 - (void)ribbonRequestedToggleHidePalettes {
     LogMacRibbon(@"ribbonRequestedToggleHidePalettes triggered");
     dispatch_async(dispatch_get_main_queue(), ^{
-        NSString *procName = [[NSProcessInfo processInfo] processName];
-        NSString *script = [NSString stringWithFormat:
-            @"tell application \"System Events\" to tell process \"%@\" to "
-            @"if exists (menu item \"Hide Palettes\" of menu \"Window\" of menu bar item \"Window\" of menu bar 1) then\n"
-            @"    click menu item \"Hide Palettes\" of menu \"Window\" of menu bar item \"Window\" of menu bar 1\n"
-            @"else if exists (menu item \"Show Palettes\" of menu \"Window\" of menu bar item \"Window\" of menu bar 1) then\n"
-            @"    click menu item \"Show Palettes\" of menu \"Window\" of menu bar item \"Window\" of menu bar 1\n"
-            @"end if",
-            procName];
-        NSAppleScript *as = [[NSAppleScript alloc] initWithSource:script];
-        [as executeAndReturnError:nil];
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            [self updateRibbonFrame];
-        });
+        id paneVC = [self paneLayoutViewController];
+        NSView *paneView = _targetWindow ? [RibbonManager findViewWithIdentifier:@"rightPane" inView:_targetWindow.contentView] : nil;
+        NSView *layoutView = paneView ? paneView.superview.superview.superview : nil;
+        SEL isHiddenSel = NSSelectorFromString(@"isPaneHidden:");
+        if (paneVC && layoutView && [layoutView respondsToSelector:isHiddenSel]) {
+            BOOL currentlyHidden = ((BOOL (*)(id, SEL, NSUInteger))objc_msgSend)(layoutView, isHiddenSel, 1);
+            SEL toggleSel = NSSelectorFromString(currentlyHidden ? @"unhidePane:" : @"hidePane:");
+            if ([paneVC respondsToSelector:toggleSel]) {
+                ((void (*)(id, SEL, NSUInteger))objc_msgSend)(paneVC, toggleSel, 1);
+                LogMacRibbon(@"Toggled rightPane (Inspector Palettes) -> hidden=%d", !currentlyHidden);
+                [self updateRibbonFrame];
+                return;
+            }
+        }
+        // Fallback: check rightPane frame width
+        if (paneVC && paneView) {
+            BOOL currentlyHidden = (paneView.frame.size.width < 10.0 || paneView.isHidden);
+            SEL toggleSel = NSSelectorFromString(currentlyHidden ? @"unhidePane:" : @"hidePane:");
+            if ([paneVC respondsToSelector:toggleSel]) {
+                ((void (*)(id, SEL, NSUInteger))objc_msgSend)(paneVC, toggleSel, 1);
+                [self updateRibbonFrame];
+                return;
+            }
+        }
     });
 }
 

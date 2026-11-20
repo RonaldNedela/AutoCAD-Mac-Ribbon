@@ -10,19 +10,19 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			wTJgx2/J6+p85rvdFZmZ7KPGOd4=
+			HP/+zU7b5NGpgWekM5AM3tnoE2E=
 			</data>
 			<key>requirement</key>
-			<string>cdhash H"c13260c76fc9ebea7ce6bbdd159999eca3c639de" or cdhash H"3c603d3765d0013665ab9c37e91a3d4729d7fbe1"</string>
+			<string>cdhash H"1cfffecd4edbe4d1a98167a433900cded9e81361" or cdhash H"1774a161b180f8834fbc23188c41af34e16bd99c"</string>
 		</dict>
 		<key>MacOS/MacRibbon.dylib</key>
 		<dict>
 			<key>cdhash</key>
 			<data>
-			XgZoRbjK/PoaARfUkzNYQKKvw1M=
+			9/cqTPw1NYb66sraNWZWMvhmQiI=
 			</data>
 			<key>requirement</key>
-			<string>cdhash H"5e066845b8cafcfa1a0117d493335840a2afc353" or cdhash H"4554849b5f19efd306b630ef1ff59624f856ceb1"</string>
+			<string>cdhash H"f7f72a4cfc353586faeacada35665632f8664222" or cdhash H"51161a5a275297aed149e5fdd0b2757110afe6c0"</string>
 		</dict>
 	</dict>
 	<key>rules</key>

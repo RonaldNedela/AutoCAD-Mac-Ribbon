@@ -63,7 +63,7 @@ int acrxEntryPoint(int msg, void* pkt) {
         case kLoadDwgMsg: {
             LogMacRibbon(@"kLoadDwgMsg received");
             dispatch_async(dispatch_get_main_queue(), ^{
-                [[RibbonManager sharedInstance] switchToWindowsRibbon];
+                [[RibbonManager sharedInstance] ensureRibbonVisible];
             });
             break;
         }

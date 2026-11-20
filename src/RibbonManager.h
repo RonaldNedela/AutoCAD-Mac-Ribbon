@@ -15,6 +15,8 @@
 - (void)reloadRibbon;
 - (void)switchToMacToolbar;
 - (void)switchToWindowsRibbon;
+- (void)ensureRibbonVisible;
+- (void)captureWindowSnapshotToFile:(NSString *)filePath;
 
 @property (nonatomic, assign, readonly) BOOL isVisible;
 

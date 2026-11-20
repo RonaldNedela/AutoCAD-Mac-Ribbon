@@ -22,5 +22,7 @@
 - (instancetype)initWithResourcesURL:(NSURL *)resourcesURL;
 - (void)sendThemeUpdate:(BOOL)isDark;
 - (void)reloadRibbonContent;
+- (void)evaluateJavaScript:(NSString *)js completionHandler:(void (^)(id result, NSError *error))completionHandler;
+- (void)captureSnapshotToFile:(NSString *)filePath;
 
 @end
